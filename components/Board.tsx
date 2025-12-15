@@ -104,17 +104,26 @@ const Board: React.FC<BoardProps> = ({
                 break;
             }
             case ShapeType.TRIANGLE: {
-                const p1x = el.x + el.width / 2;
-                const p1y = el.y;
-                const p2x = el.x;
-                const p2y = el.y + el.height;
-                const p3x = el.x + el.width;
-                const p3y = el.y + el.height;
-                ctx.moveTo(p1x, p1y);
-                ctx.lineTo(p2x, p2y);
-                ctx.lineTo(p3x, p3y);
-                ctx.closePath();
-                ctx.stroke();
+                if (el.points && el.points.length === 3) {
+                    ctx.moveTo(el.points[0].x, el.points[0].y);
+                    ctx.lineTo(el.points[1].x, el.points[1].y);
+                    ctx.lineTo(el.points[2].x, el.points[2].y);
+                    ctx.closePath();
+                    ctx.stroke();
+                } else {
+                    // Fallback to bounding box isosceles
+                    const p1x = el.x + el.width / 2;
+                    const p1y = el.y;
+                    const p2x = el.x;
+                    const p2y = el.y + el.height;
+                    const p3x = el.x + el.width;
+                    const p3y = el.y + el.height;
+                    ctx.moveTo(p1x, p1y);
+                    ctx.lineTo(p2x, p2y);
+                    ctx.lineTo(p3x, p3y);
+                    ctx.closePath();
+                    ctx.stroke();
+                }
                 break;
             }
             case ShapeType.IMAGE: {
@@ -123,10 +132,7 @@ const Board: React.FC<BoardProps> = ({
                 if (img.complete) {
                    ctx.drawImage(img, el.x, el.y, el.width, el.height);
                 } else {
-                   // If not loaded yet, wait? 
-                   // Ideally we preload images, but for now simple handling:
                    img.onload = () => {
-                       // Trigger re-render if needed, but for now this handles late loads
                        ctx.drawImage(img, el.x, el.y, el.width, el.height);
                    };
                 }

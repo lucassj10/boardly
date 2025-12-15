@@ -170,7 +170,7 @@ function App() {
         const shape = detectShape(pathEl.points);
         
         if (shape) {
-            const box = getBoundingBox(pathEl.points);
+            let box = getBoundingBox(pathEl.points);
             
             if (shape.type === ShapeType.LINE) {
                 const lineEl: LineElement = {
@@ -183,6 +183,23 @@ function App() {
                 };
                 finalizedElement = lineEl;
             } else if ([ShapeType.SQUARE, ShapeType.CIRCLE, ShapeType.TRIANGLE].includes(shape.type)) {
+                
+                // Correction for Circles (Fix accidental ovals)
+                if (shape.type === ShapeType.CIRCLE) {
+                    const aspectRatio = box.width / box.height;
+                    // If the user intended a circle (aspect ratio close to 1), snap to perfect circle
+                    if (aspectRatio > 0.8 && aspectRatio < 1.25) {
+                        const avgSize = (box.width + box.height) / 2;
+                        const centerX = box.x + box.width / 2;
+                        const centerY = box.y + box.height / 2;
+                        
+                        box.x = centerX - avgSize / 2;
+                        box.y = centerY - avgSize / 2;
+                        box.width = avgSize;
+                        box.height = avgSize;
+                    }
+                }
+
                 const shapeEl: ShapeElement = {
                     id: currentElement.id,
                     type: shape.type as (ShapeType.SQUARE | ShapeType.CIRCLE | ShapeType.TRIANGLE),
@@ -191,7 +208,8 @@ function App() {
                     x: box.x,
                     y: box.y,
                     width: box.width,
-                    height: box.height
+                    height: box.height,
+                    points: shape.points // Pass corrected vertices (important for Triangle)
                 };
                 finalizedElement = shapeEl;
             }
@@ -220,8 +238,8 @@ function App() {
   return (
     <div className="relative w-full h-full bg-black overflow-hidden">
       {/* App Name */}
-      <div className="absolute top-8 left-8 z-40 select-none">
-        <h1 className="text-white text-4xl font-bold font-[Kalam] tracking-wider opacity-80">Boardly</h1>
+      <div className="absolute top-8 left-8 z-40 select-none pointer-events-none">
+        <h1 className="text-4xl" style={{ fontFamily: '"Permanent Marker", cursive', color: '#2599e6' }}>Boardly</h1>
       </div>
 
       {/* Background Texture */}

@@ -67,7 +67,7 @@ const simplifyPath = (points: Point[], tolerance: number): Point[] => {
   return [points[0], points[end]];
 };
 
-export const detectShape = (points: Point[]): { type: ShapeType } | null => {
+export const detectShape = (points: Point[]): { type: ShapeType, points?: Point[] } | null => {
   if (points.length < 5) return null;
 
   const len = getPathLength(points);
@@ -75,47 +75,50 @@ export const detectShape = (points: Point[]): { type: ShapeType } | null => {
   const bbox = getBoundingBox(points);
   
   // 1. Line Detection
-  // If the direct distance is very close to total path length, it's a straight line
   if (dist / len > 0.90) { 
      return { type: ShapeType.LINE };
   }
 
   // 2. Closed Shape Check
-  // If ends are far apart relative to length, it's probably an open curve (unless it's a line, handled above)
-  if (dist > len * 0.3) return null;
+  // Allow slightly more open shapes to be detected as closed (0.3 -> 0.4)
+  if (dist > len * 0.4) return null;
 
-  // 3. Polygon Detection (Triangle/Square) via RDP
-  // Calculate bounding box diagonal for relative tolerance
-  const diag = Math.hypot(bbox.width, bbox.height);
-  // Tolerance ~6% of diagonal is usually good for distinguishing corners vs curves
-  const tolerance = diag * 0.06; 
-  
-  const simplified = simplifyPath(points, tolerance);
-  
-  // Triangle: 3 points (Start->Turn->End??) or 4 points (Start->A->B->Start)
-  if (simplified.length === 3 || simplified.length === 4) {
-      return { type: ShapeType.TRIANGLE };
-  }
-
-  // Square/Rect: 5 points (Start->A->B->C->Start)
-  if (simplified.length === 5) {
-      return { type: ShapeType.SQUARE };
-  }
-
-  // 4. Circle Detection (Standard Deviation of Radius)
-  // Only check if it didn't match a simple polygon.
-  // Circles usually simplify to > 5 segments with this tolerance.
-  
+  // 3. Circle Detection (Standard Deviation of Radius)
   const center = { x: bbox.x + bbox.width/2, y: bbox.y + bbox.height/2 };
   const radii = points.map(p => distance(p, center));
   const meanRadius = radii.reduce((a,b) => a+b, 0) / radii.length;
   const variance = radii.reduce((a,b) => a + Math.pow(b - meanRadius, 2), 0) / radii.length;
   const stdDev = Math.sqrt(variance);
 
-  // If variation is low (< 15%), it's likely a circle.
-  // Squares have much higher variance (> 15-20%).
-  if (stdDev / meanRadius < 0.15) {
+  // If variance is low, it's a circle/ellipse.
+  if (stdDev / meanRadius < 0.20) {
       return { type: ShapeType.CIRCLE };
+  }
+
+  // 4. Polygon Detection (Triangle/Square) via RDP
+  const diag = Math.hypot(bbox.width, bbox.height);
+  // Increase tolerance to avoid over-segmentation of triangles
+  const tolerance = diag * 0.08; 
+  
+  // Force closure for RDP to get polygon vertices
+  const closedPoints = [...points];
+  if (distance(points[0], points[points.length-1]) > tolerance/2) {
+    closedPoints.push(points[0]);
+  }
+
+  const simplified = simplifyPath(closedPoints, tolerance);
+  
+  // Triangle: 3 points or 4 points (Start->A->B->Start)
+  if (simplified.length <= 4) {
+      // Return the unique vertices (slice off the closing point if present)
+      const trianglePoints = simplified.length === 4 ? simplified.slice(0, 3) : simplified;
+      return { type: ShapeType.TRIANGLE, points: trianglePoints };
+  }
+
+  // Square/Rect: 5 points (Start->A->B->C->Start)
+  // Also catch 6 points if one side is slightly bent but roughly rect
+  if (simplified.length === 5 || simplified.length === 6) {
+      return { type: ShapeType.SQUARE };
   }
 
   return null;
@@ -124,7 +127,6 @@ export const detectShape = (points: Point[]): { type: ShapeType } | null => {
 export const isPointNearElement = (element: BoardElement, point: Point, threshold: number = 10): boolean => {
   switch (element.type) {
     case ShapeType.FREEHAND: {
-      // Check distance to any segment
       for (let i = 0; i < element.points.length - 1; i++) {
         if (distToSegment(point, element.points[i], element.points[i+1]) < threshold) {
           return true;
@@ -136,9 +138,7 @@ export const isPointNearElement = (element: BoardElement, point: Point, threshol
       return distToSegment(point, element.start, element.end) < threshold;
     }
     case ShapeType.SQUARE: 
-    case ShapeType.IMAGE: { // Treat image like rect
-      // Check if point is inside or near border.
-      // For eraser, inside is easier for "wiping"
+    case ShapeType.IMAGE: { 
       return point.x >= element.x && point.x <= element.x + element.width &&
              point.y >= element.y && point.y <= element.y + element.height;
     }
@@ -147,17 +147,21 @@ export const isPointNearElement = (element: BoardElement, point: Point, threshol
       const ry = element.height / 2;
       const cx = element.x + rx;
       const cy = element.y + ry;
-      // Ellipse equation check: (x-cx)^2/rx^2 + (y-cy)^2/ry^2 <= 1
       const val = Math.pow(point.x - cx, 2) / Math.pow(rx, 2) + Math.pow(point.y - cy, 2) / Math.pow(ry, 2);
       return val <= 1;
     }
     case ShapeType.TRIANGLE: {
-      // Point in polygon test for triangle
-      const p1 = { x: element.x + element.width / 2, y: element.y };
-      const p2 = { x: element.x, y: element.y + element.height };
-      const p3 = { x: element.x + element.width, y: element.y + element.height };
+      // Use stored points if available
+      let p1, p2, p3;
+      if (element.points && element.points.length === 3) {
+        [p1, p2, p3] = element.points;
+      } else {
+        // Fallback
+        p1 = { x: element.x + element.width / 2, y: element.y };
+        p2 = { x: element.x, y: element.y + element.height };
+        p3 = { x: element.x + element.width, y: element.y + element.height };
+      }
 
-      // Barycentric coordinate system or simple area sum
       const sign = (p1: Point, p2: Point, p3: Point) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
       const d1 = sign(point, p1, p2);
       const d2 = sign(point, p2, p3);
@@ -169,7 +173,6 @@ export const isPointNearElement = (element: BoardElement, point: Point, threshol
       return !(hasNeg && hasPos);
     }
     case ShapeType.TEXT: {
-       // Estimate text box
        const estimatedHeight = element.fontSize * 1.5;
        const estimatedWidth = element.text.length * element.fontSize * 0.6;
        return point.x >= element.x && point.x <= element.x + estimatedWidth &&

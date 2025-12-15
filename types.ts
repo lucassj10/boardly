@@ -45,6 +45,7 @@ export interface ShapeElement extends BaseElement {
   y: number;
   width: number;
   height: number;
+  points?: Point[]; // Used for preserving triangle orientation/vertices
 }
 
 export interface TextElement extends BaseElement {

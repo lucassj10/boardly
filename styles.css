@@ -1,0 +1,13 @@
+body {
+  font-family: 'Kalam', cursive;
+  overflow: hidden; /* Prevent scrolling on touch devices while drawing */
+}
+.cursor-crosshair {
+  cursor: crosshair;
+}
+.cursor-text {
+  cursor: text;
+}
+.cursor-move {
+  cursor: move;
+}
