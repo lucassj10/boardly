@@ -1,0 +1,5 @@
+{
+  "name": "Boardly",
+  "description": "A smart interactive blackboard with AI-powered shape correction, text tools, and image pasting capabilities.",
+  "requestFramePermissions": []
+}
